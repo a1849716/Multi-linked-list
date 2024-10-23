@@ -5,16 +5,12 @@ import time
 import threading
 from collections import defaultdict
 
-
-
 #variable initiation
 sel = selectors.DefaultSelector()
 search_pattern = sys.argv[4]
 shared_lock = threading.Lock()
 shared_list = []
 book_count = 0
-
-
 
 #Classes for Node and Linked List
 class Node:
