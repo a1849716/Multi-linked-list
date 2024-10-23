@@ -40,42 +40,46 @@ books = {}
 
 
 # Function to handle each client connection
-def client_handler(conn, addr):
-    global books_count
+def client_handler(conn, addr, book_id, connection_number):
     print(f"Connected by {addr}")
-    #incrases book_id and add to global linked list
-    book_count += 1
-    book_id = book_count
-    books[book_id] = linked_list()
+    conn.setblocking(False)  # Set the connection to non-blocking mode
+    buffer = ""  # Buffer to store incomplete data
+
     try:
         with conn:
             while True:
-                data = conn.recv(1024)  # Receive data from client
-                if not data:
-                    break  # Connection closed by the client
-                
-                buffer += data.decode()  # Append received data to buffer
-                
-                # Process complete lines
-                lines = buffer.split('\n')
-                buffer = lines.pop()  # Keep incomplete line in buffer
+                try:
+                    data = conn.recv(1024)  # Try to receive data
+                    if not data:
+                        break  # No more data, close the connection
+
+                    buffer += data.decode()  # Append received data to buffer
+
+                    # Process complete lines
+                    lines = buffer.split('\n')
+                    buffer = lines.pop()  # Keep incomplete line in buffer
                     
-                for line in lines:
-                    # Add each line to the shared linked list
-                    with shared_lock:
-                        node = books[book_id].add_node(line, book_id)
-                        shared_list.append(node)
-                        print(f"Added node: {line}, Book ID: {book_id}")
+                    for line in lines:
+                        if line.strip():  # Only process non-empty lines
+                            # Create a new node for each line and add it to shared_list
+                            new_node = Node(line, book_id)
+                            with shared_lock:
+                                add_to_shared_list(new_node)
+                            print(f"Added line to book {book_id}: {line}")
+                
+                except BlockingIOError:
+                    continue  # No data available yet, continue waiting
+
     except Exception as e:
         print(f"Exception handling client {addr}: {e}")
+
     finally:
-        # Write the book to a file when the connection closes
-        filename = f"book_{book_id:02d}.txt"
-        with open(filename, 'w') as f:
-            current = books[book_id].head
-            while current:
-                f.write(current.line + "\n")
-                current = current.book_next
+        # Write collected data to file when the connection closes
+        with open(f"book_{connection_number:02}.txt", 'w') as f:
+            with shared_lock:
+                for node in get_book_nodes(book_id):
+                    f.write(node.line + '\n')  # Write each line to the file
+
         print(f"Connection with {addr} closed")
 
 
