@@ -34,13 +34,12 @@ class linked_list:
         self.tail = new_node
         return new_node
 
-# Each book will have its own linked list.
 books = {}
 
 # Function to handle each client connection
 def client_handler(conn, addr, book_id, connection_number):
     print(f"Connected by {addr}")
-    conn.setblocking(False)  # Set the connection to non-blocking mode
+    conn.setblocking(False)  # Set the connection to non-blockinag mode
     buffer = ""  # Buffer to store incomplete data
     try:
         with conn:
