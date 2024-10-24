@@ -10,7 +10,7 @@ sel = selectors.DefaultSelector()
 search_pattern = sys.argv[4]
 shared_lock = threading.Lock()
 shared_list = []
-book_count = 0
+connection_counter = 0
 
 #Classes for Node and Linked List
 class Node:
@@ -24,7 +24,7 @@ class linked_list:
     def __init__(self):
         self.head = None
         self.tail = None
-
+        
     def add_node(self, line, book_id):
         new_node = Node(line, book_id)
         if self.head is None:
@@ -34,50 +34,60 @@ class linked_list:
         self.tail = new_node
         return new_node
 
-books = {}
+# Function to add a node to the shared list in a thread-safe manner
+def add_to_shared_list(node):
+    with shared_lock:
+        shared_list.append(node)  # Add the node to the shared list
+        print(f"Node added to shared list: {node.line}")
 
 # Function to handle each client connection
-def client_handler(conn, addr, book_id, connection_number):
+def client_handler(conn, addr, book_id, connection_number, search_word):
     print(f"Connected by {addr}")
-    conn.setblocking(False)  # Set the connection to non-blockinag mode
+    conn.setblocking(False)  # Set the connection to non-blocking mode
     buffer = ""  # Buffer to store incomplete data
+
     try:
-        with conn:
-            while True:
-                try:
-                    data = conn.recv(1024)  # Try to receive data
-                    if not data:
-                        break  # No more data, close the connection
+        # Create a file for the client as soon as the connection is established
+        file = open(f"book_{connection_number:02}.txt", 'w')  # Create and open file
+        print(f"File book_{connection_number:02}.txt created for client {addr}")
 
-                    buffer += data.decode()  # Append received data to buffer
+        try:
+            with conn:
+                while True:
+                    try:
+                        data = conn.recv(1024)  # Try to receive data
+                        if not data:
+                            break  # No more data, close the connection
 
-                    # Process complete lines
-                    lines = buffer.split('\n')
-                    buffer = lines.pop()  # Keep incomplete line in buffer
-                    
-                    for line in lines:
-                        if line.strip():  # Only process non-empty lines
-                            # Create a new node for each line and add it to shared_list
-                            new_node = Node(line, book_id)
-                            with shared_lock:
-                                add_to_shared_list(new_node)
-                            print(f"Added line to book {book_id}: {line}")
-                
-                except BlockingIOError:
-                    continue  # No data available yet, continue waiting
+                        buffer += data.decode()  # Append received data to buffer
 
-    except Exception as e:
-        print(f"Exception handling client {addr}: {e}")
+                        # Process complete lines
+                        lines = buffer.split('\n')
+                        buffer = lines.pop()  # Keep incomplete line in buffer
+
+                        for line in lines:
+                            if line.strip():  # Only process non-empty lines
+                                # Check if the line contains the search word
+                                if search_word in line:
+                                    # Create a new node for each line and add it to shared_list
+                                    new_node = Node(line, book_id)
+                                    
+                                    # Add to the shared list using shared_lock for thread-safety
+                                    add_to_shared_list(new_node)
+                                    
+                                    # Write the filtered line directly to the file
+                                    file.write(line + '\n')
+                                    file.flush()  # Ensure the data is written immediately
+
+                    except BlockingIOError:
+                        continue  # No data available yet, continue waiting
+
+        except Exception as e:
+            print(f"Exception handling client {addr}: {e}")
 
     finally:
-        # Write collected data to file when the connection closes
-        with open(f"book_{connection_number:02}.txt", 'w') as f:
-            with shared_lock:
-                for node in get_book_nodes(book_id):
-                    f.write(node.line + '\n')  # Write each line to the file
-
-        print(f"Connection with {addr} closed")
-
+        file.close()  # Close the file when the connection ends
+        print(f"Connection with {addr} closed and file book_{connection_number:02}.txt saved.")
 
 
 # Analysis thread to compute search pattern frequency
@@ -101,15 +111,20 @@ def analysis_thread():
 
 
 
-# Event loop to accept new clients
 def accept_wrapper(sock):
-    conn, addr = sock.accept()  # Accept a new client connection
+    global connection_counter
+    conn, addr = sock.accept()  # Accept the new client connection
     print(f"Accepted connection from {addr}")
-    conn.setblocking(True)  # Make the new client socket blocking
-    # Start a new thread for the client handler
-    threading.Thread(target=client_handler, args=(conn, addr), daemon=True).start()
 
+    # Increment connection_counter to assign unique connection_number
+    connection_counter += 1
+    connection_number = connection_counter
+    book_id = connection_counter  # Here book_id is tied to connection_number
 
+    conn.setblocking(True)  # Set the client socket to blocking mode
+
+    # Start a new thread to handle the client, passing book_id, connection_number, and search_pattern
+    threading.Thread(target=client_handler, args=(conn, addr, book_id, connection_number, search_pattern), daemon=True).start()
 
 #set host and port and binding to socket
 port = int(sys.argv[2])
