@@ -4,6 +4,8 @@ import selectors
 import time
 import threading
 from collections import defaultdict
+from operator import itemgetter
+
 
 #variable initiation
 sel = selectors.DefaultSelector()
@@ -59,7 +61,7 @@ def client_handler(conn, addr, book_id, connection_number, search_word):
                         if not data:
                             break  # No more data, close the connection
 
-                        buffer += data.decode()  # Append received data to buffer
+                        buffer += data.decode(errors='replace')  # Replaces undecodable characters with a placeholder (usually '?')
 
                         # Process complete lines
                         lines = buffer.split('\n')
@@ -89,12 +91,11 @@ def client_handler(conn, addr, book_id, connection_number, search_word):
         file.close()  # Close the file when the connection ends
         print(f"Connection with {addr} closed and file book_{connection_number:02}.txt saved.")
 
-
-# Analysis thread to compute search pattern frequency
 def analysis_thread():
     while True:
         time.sleep(5)  # Analyze every 5 seconds
         pattern_count = defaultdict(int)
+        
         with shared_lock:
             for node in shared_list:
                 if search_pattern in node.line:
@@ -102,14 +103,12 @@ def analysis_thread():
         
         # Output book titles sorted by pattern frequency
         if pattern_count:
-            sorted_books = sorted(pattern_count.items(), key=lambda x: x[1], reverse=True)
+            sorted_books = sorted(pattern_count.items(), key=itemgetter(1), reverse=True)
             print(f"\nPattern '{search_pattern}' Frequency Analysis:")
             for book_id, count in sorted_books:
                 print(f"Book {book_id}: {count} occurrences")
         else:
             print(f"\nNo occurrences of pattern '{search_pattern}' found.")
-
-
 
 def accept_wrapper(sock):
     global connection_counter
@@ -138,6 +137,9 @@ print(f"Listening on {(port)}")
 #setting up non-blocking mode
 ssock.setblocking(False)
 sel.register(ssock, selectors.EVENT_READ, data=None)
+
+# Start analysis threads
+threading.Thread(target=analysis_thread, daemon=True).start()
 
 # Event loop to listen for incoming connections
 try:
